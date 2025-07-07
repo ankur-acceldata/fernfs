@@ -6,8 +6,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
-	"github.com/ankuragarwal/fernfs/backend/internal/storage"
+	"github.com/ankuragarwal/fernfs/backend/storage"
 )
 
 // Adapter implements storage.Adapter for local filesystem
@@ -20,19 +21,21 @@ type Config struct {
 	BasePath string `mapstructure:"base_path"`
 }
 
-// New creates a new local filesystem adapter
-func New(cfg Config) (*Adapter, error) {
-	if cfg.BasePath == "" {
-		return nil, fmt.Errorf("base_path is required")
+// NewAdapter creates a new local filesystem adapter
+func NewAdapter(basePath string) (*Adapter, error) {
+	// Convert to absolute path
+	absPath, err := filepath.Abs(basePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get absolute path: %w", err)
 	}
 
 	// Create base directory if it doesn't exist
-	if err := os.MkdirAll(cfg.BasePath, 0755); err != nil {
+	if err := os.MkdirAll(absPath, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create base directory: %w", err)
 	}
 
 	return &Adapter{
-		basePath: cfg.BasePath,
+		basePath: absPath,
 	}, nil
 }
 
@@ -44,13 +47,13 @@ func (a *Adapter) resolvePath(path string) (string, error) {
 
 	// Clean the path to remove any . or .. components
 	cleanPath := filepath.Clean(path)
-	if cleanPath == ".." || filepath.IsAbs(cleanPath) {
-		return "", fmt.Errorf("invalid path: %s", path)
+	if strings.HasPrefix(cleanPath, "..") || strings.Contains(cleanPath, "../") {
+		return "", fmt.Errorf("path traversal not allowed: %s", path)
 	}
 
 	// Join with base path and verify it's within the base directory
 	fullPath := filepath.Join(a.basePath, cleanPath)
-	if !filepath.HasPrefix(fullPath, a.basePath) {
+	if !strings.HasPrefix(fullPath, a.basePath) {
 		return "", fmt.Errorf("path escapes base directory: %s", path)
 	}
 
@@ -86,7 +89,7 @@ func (a *Adapter) Rmdir(ctx context.Context, path string) error {
 }
 
 // Readdir lists directory contents
-func (a *Adapter) Readdir(ctx context.Context, path string) ([]storage.DirEntry, error) {
+func (a *Adapter) Readdir(ctx context.Context, path string) ([]storage.FileInfo, error) {
 	fullPath, err := a.resolvePath(path)
 	if err != nil {
 		return nil, err
@@ -97,12 +100,20 @@ func (a *Adapter) Readdir(ctx context.Context, path string) ([]storage.DirEntry,
 		return nil, err
 	}
 
-	result := make([]storage.DirEntry, len(entries))
-	for i, entry := range entries {
-		result[i] = storage.DirEntry{
-			Name:  entry.Name(),
-			IsDir: entry.IsDir(),
+	result := make([]storage.FileInfo, 0, len(entries))
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err != nil {
+			return nil, err
 		}
+
+		result = append(result, storage.FileInfo{
+			Name:    entry.Name(),
+			Size:    info.Size(),
+			Mode:    info.Mode(),
+			ModTime: info.ModTime(),
+			IsDir:   info.IsDir(),
+		})
 	}
 
 	return result, nil
@@ -136,30 +147,11 @@ func (a *Adapter) ReadFile(ctx context.Context, path string, opts storage.ReadOp
 		return nil, err
 	}
 
-	file, err := os.OpenFile(fullPath, os.O_RDONLY, 0)
-	if err != nil {
-		return nil, err
-	}
-
-	if opts.Offset > 0 {
-		if _, err := file.Seek(opts.Offset, io.SeekStart); err != nil {
-			file.Close()
-			return nil, err
-		}
-	}
-
-	if opts.Length > 0 {
-		return &limitedReadCloser{
-			ReadCloser: file,
-			limit:      opts.Length,
-		}, nil
-	}
-
-	return file, nil
+	return os.Open(fullPath)
 }
 
 // WriteFile writes data to a file
-func (a *Adapter) WriteFile(ctx context.Context, path string, data io.Reader, opts storage.WriteOptions) error {
+func (a *Adapter) WriteFile(ctx context.Context, path string, reader io.Reader, opts storage.WriteOptions) error {
 	fullPath, err := a.resolvePath(path)
 	if err != nil {
 		return err
@@ -176,7 +168,7 @@ func (a *Adapter) WriteFile(ctx context.Context, path string, data io.Reader, op
 	}
 	defer file.Close()
 
-	_, err = io.Copy(file, data)
+	_, err = io.Copy(file, reader)
 	return err
 }
 
@@ -232,23 +224,4 @@ func (a *Adapter) Chmod(ctx context.Context, path string, mode os.FileMode) erro
 // Close implements storage.Adapter
 func (a *Adapter) Close() error {
 	return nil
-}
-
-// limitedReadCloser wraps an io.ReadCloser to limit the number of bytes that can be read
-type limitedReadCloser struct {
-	io.ReadCloser
-	limit int64
-	read  int64
-}
-
-func (l *limitedReadCloser) Read(p []byte) (n int, err error) {
-	if l.limit <= l.read {
-		return 0, io.EOF
-	}
-	if int64(len(p)) > l.limit-l.read {
-		p = p[0 : l.limit-l.read]
-	}
-	n, err = l.ReadCloser.Read(p)
-	l.read += int64(n)
-	return
 } 

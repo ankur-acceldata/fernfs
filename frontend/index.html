@@ -36,7 +36,7 @@
         }
 
         button {
-            padding: 10px 15px;
+            padding: 8px 16px;
             border: none;
             border-radius: 4px;
             background-color: #3498db;
@@ -49,35 +49,32 @@
             background-color: #2980b9;
         }
 
+        input, textarea {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
         #output {
             background: #2c3e50;
             color: #ecf0f1;
-            padding: 20px;
-            border-radius: 8px;
-            margin-top: 20px;
-            font-family: monospace;
-            white-space: pre-wrap;
-            max-height: 300px;
-            overflow-y: auto;
-        }
-
-        .input-group {
-            margin: 10px 0;
-            display: flex;
-            gap: 10px;
-            align-items: center;
-        }
-
-        input {
-            padding: 8px;
-            border: 1px solid #ddd;
+            padding: 15px;
             border-radius: 4px;
-            flex: 1;
+            font-family: monospace;
+            height: 300px;
+            overflow-y: auto;
+            margin-top: 20px;
         }
 
-        label {
-            min-width: 100px;
-            color: #2c3e50;
+        .success {
+            color: #2ecc71;
+        }
+
+        .error {
+            color: #e74c3c;
         }
     </style>
 </head>
@@ -86,184 +83,205 @@
     
     <div class="operation-group">
         <h2>Common Inputs</h2>
-        <div class="input-group">
-            <label for="path">Path:</label>
-            <input type="text" id="path" value="/test" />
-        </div>
-        <div class="input-group">
-            <label for="content">Content:</label>
-            <input type="text" id="content" value="Hello, World!" />
-        </div>
-        <div class="input-group">
-            <label for="mode">Mode:</label>
-            <input type="text" id="mode" value="0o755" />
-        </div>
+        <input type="text" id="path" value="/test" placeholder="Path (e.g., /test/file.txt)">
+        <textarea id="content" placeholder="Content for write operations">Hello, World!</textarea>
+        <input type="text" id="mode" value="0o755" placeholder="Mode (e.g., 0o755)">
     </div>
 
     <div class="operation-group">
         <h2>Directory Operations</h2>
         <div class="button-group">
-            <button onclick="mkdir()">mkdir</button>
-            <button onclick="rmdir()">rmdir</button>
-            <button onclick="readdir()">readdir</button>
+            <button id="mkdir-btn">mkdir</button>
+            <button id="rmdir-btn">rmdir</button>
+            <button id="readdir-btn">readdir</button>
         </div>
     </div>
 
     <div class="operation-group">
         <h2>File Operations</h2>
         <div class="button-group">
-            <button onclick="readFile()">readFile</button>
-            <button onclick="writeFile()">writeFile</button>
-            <button onclick="unlink()">unlink</button>
-            <button onclick="stat()">stat</button>
-            <button onclick="chmod()">chmod</button>
+            <button id="readFile-btn">readFile</button>
+            <button id="writeFile-btn">writeFile</button>
+            <button id="unlink-btn">unlink</button>
+            <button id="stat-btn">stat</button>
+            <button id="chmod-btn">chmod</button>
         </div>
     </div>
 
     <div class="operation-group">
         <h2>Other Operations</h2>
         <div class="button-group">
-            <button onclick="rename()">rename</button>
-            <button onclick="sync()">sync</button>
-            <button onclick="clearOutput()">Clear Output</button>
+            <button id="rename-btn">rename</button>
+            <button id="sync-btn">sync</button>
+            <button id="clear-btn">Clear Output</button>
         </div>
     </div>
 
     <div id="output"></div>
 
     <script type="module">
-        import { RemoteFS, LocalStorageAdapter } from './dist/index.js';
+        import { RemoteFS, LocalStorageAdapter } from './src/index.ts';
 
-        // Initialize RemoteFS
-        const adapter = new LocalStorageAdapter();
-        window.fs = new RemoteFS({
-            adapter,
-            enableOffline: true,
-            serverUrl: 'ws://localhost:8080'
-        });
+        let fs;
 
-        // Helper to get input values
-        function getInputs() {
-            return {
-                path: document.getElementById('path').value,
-                content: document.getElementById('content').value,
-                mode: parseInt(document.getElementById('mode').value.replace('0o', ''), 8)
-            };
+        async function initializeFS() {
+            try {
+                log('Initializing LocalStorageAdapter...');
+                const adapter = new LocalStorageAdapter();
+                
+                log('Creating RemoteFS instance...');
+                fs = new RemoteFS({ 
+                    adapter,
+                    enableOffline: true,
+                    serverUrl: 'ws://localhost:8080'
+                });
+
+                log('RemoteFS initialized successfully');
+                
+                // Test IndexedDB access
+                const testPath = '/.test';
+                try {
+                    await fs.mkdir(testPath);
+                    log('IndexedDB test write successful');
+                    await fs.rmdir(testPath);
+                    log('IndexedDB test cleanup successful');
+                } catch (error) {
+                    logError(`IndexedDB test failed: ${error.message}`);
+                }
+            } catch (error) {
+                logError(`Failed to initialize RemoteFS: ${error.message}`);
+                throw error;
+            }
         }
 
-        // Helper to log output
-        function log(message, error = false) {
+        async function handleOperation(operation) {
+            if (!fs) {
+                logError('RemoteFS not initialized');
+                return;
+            }
+
+            const path = document.getElementById('path').value;
+            const content = document.getElementById('content').value;
+            const mode = document.getElementById('mode').value;
+            
+            try {
+                log(`Starting operation: ${operation}`);
+                log(`Parameters: path=${path}, mode=${mode}`);
+                if (operation === 'writeFile') {
+                    log(`content=${content}`);
+                }
+
+                let result;
+                switch (operation) {
+                    case 'mkdir':
+                        await fs.mkdir(path, parseInt(mode, 8));
+                        log(`Created directory: ${path}`);
+                        // Verify directory was created
+                        const stats = await fs.stat(path);
+                        log('Directory verification:', stats);
+                        break;
+                    case 'rmdir':
+                        await fs.rmdir(path);
+                        log(`Removed directory: ${path}`);
+                        break;
+                    case 'readdir':
+                        result = await fs.readdir(path);
+                        log(`Directory contents of ${path}:`, result);
+                        break;
+                    case 'readFile':
+                        result = await fs.readFile(path, 'utf-8');
+                        log(`File contents of ${path}:`, result);
+                        break;
+                    case 'writeFile':
+                        await fs.writeFile(path, content);
+                        log(`Wrote to file: ${path}`);
+                        break;
+                    case 'unlink':
+                        await fs.unlink(path);
+                        log(`Deleted file: ${path}`);
+                        break;
+                    case 'stat':
+                        result = await fs.stat(path);
+                        log(`Stats for ${path}:`, result);
+                        break;
+                    case 'chmod':
+                        await fs.chmod(path, parseInt(mode, 8));
+                        log(`Changed permissions of ${path} to ${mode}`);
+                        break;
+                    case 'rename':
+                        const newPath = prompt('Enter new path:', path.replace(/\.[^.]+$/, '_new$&'));
+                        if (newPath) {
+                            await fs.rename(path, newPath);
+                            log(`Renamed ${path} to ${newPath}`);
+                        }
+                        break;
+                    case 'sync':
+                        await fs.sync();
+                        const status = fs.getSyncStatus();
+                        log('Sync status:', status);
+                        break;
+                }
+            } catch (error) {
+                logError(`Error in ${operation}: ${error.message}`);
+                console.error('Full error:', error);
+            }
+        }
+
+        function log(message, data) {
             const output = document.getElementById('output');
-            const entry = document.createElement('div');
-            entry.style.color = error ? '#e74c3c' : '#2ecc71';
-            entry.textContent = `${new Date().toISOString()} ${message}`;
-            output.insertBefore(entry, output.firstChild);
+            const time = new Date().toLocaleTimeString();
+            const dataStr = data ? '\n' + JSON.stringify(data, null, 2) : '';
+            const logEntry = `<div class="success">[${time}] ${message}${dataStr}</div>`;
+            console.log(`[${time}] ${message}`, data || '');
+            output.innerHTML += logEntry;
+            output.scrollTop = output.scrollHeight;
         }
 
-        // Expose operations to window
-        window.mkdir = async () => {
-            try {
-                const { path, mode } = getInputs();
-                await fs.mkdir(path, mode);
-                log(`Created directory: ${path}`);
-            } catch (error) {
-                log(error.message, true);
-            }
-        };
+        function logError(message) {
+            const output = document.getElementById('output');
+            const time = new Date().toLocaleTimeString();
+            const logEntry = `<div class="error">[${time}] ${message}</div>`;
+            console.error(`[${time}] ${message}`);
+            output.innerHTML += logEntry;
+            output.scrollTop = output.scrollHeight;
+        }
 
-        window.rmdir = async () => {
-            try {
-                const { path } = getInputs();
-                await fs.rmdir(path);
-                log(`Removed directory: ${path}`);
-            } catch (error) {
-                log(error.message, true);
-            }
-        };
-
-        window.readdir = async () => {
-            try {
-                const { path } = getInputs();
-                const entries = await fs.readdir(path);
-                log(`Directory contents of ${path}:\n${JSON.stringify(entries, null, 2)}`);
-            } catch (error) {
-                log(error.message, true);
-            }
-        };
-
-        window.readFile = async () => {
-            try {
-                const { path } = getInputs();
-                const content = await fs.readFile(path, 'utf-8');
-                log(`File contents of ${path}:\n${content}`);
-            } catch (error) {
-                log(error.message, true);
-            }
-        };
-
-        window.writeFile = async () => {
-            try {
-                const { path, content } = getInputs();
-                await fs.writeFile(path, content);
-                log(`Wrote to file: ${path}`);
-            } catch (error) {
-                log(error.message, true);
-            }
-        };
-
-        window.unlink = async () => {
-            try {
-                const { path } = getInputs();
-                await fs.unlink(path);
-                log(`Deleted file: ${path}`);
-            } catch (error) {
-                log(error.message, true);
-            }
-        };
-
-        window.stat = async () => {
-            try {
-                const { path } = getInputs();
-                const stats = await fs.stat(path);
-                log(`Stats for ${path}:\n${JSON.stringify(stats, null, 2)}`);
-            } catch (error) {
-                log(error.message, true);
-            }
-        };
-
-        window.chmod = async () => {
-            try {
-                const { path, mode } = getInputs();
-                await fs.chmod(path, mode);
-                log(`Changed mode of ${path} to ${mode.toString(8)}`);
-            } catch (error) {
-                log(error.message, true);
-            }
-        };
-
-        window.rename = async () => {
-            try {
-                const { path, content } = getInputs();
-                await fs.rename(path, content); // Using content input as new path
-                log(`Renamed ${path} to ${content}`);
-            } catch (error) {
-                log(error.message, true);
-            }
-        };
-
-        window.sync = async () => {
-            try {
-                await fs.sync();
-                const status = await fs.getSyncStatus();
-                log(`Sync completed. Status:\n${JSON.stringify(status, null, 2)}`);
-            } catch (error) {
-                log(error.message, true);
-            }
-        };
-
-        window.clearOutput = () => {
+        function clearOutput() {
             document.getElementById('output').innerHTML = '';
-        };
+        }
+
+        // Add event listeners after DOM is loaded
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                log('DOM loaded, initializing filesystem...');
+                await initializeFS();
+
+                // Directory operations
+                document.getElementById('mkdir-btn').addEventListener('click', () => {
+                    log('mkdir button clicked');
+                    handleOperation('mkdir');
+                });
+                document.getElementById('rmdir-btn').addEventListener('click', () => handleOperation('rmdir'));
+                document.getElementById('readdir-btn').addEventListener('click', () => handleOperation('readdir'));
+
+                // File operations
+                document.getElementById('readFile-btn').addEventListener('click', () => handleOperation('readFile'));
+                document.getElementById('writeFile-btn').addEventListener('click', () => handleOperation('writeFile'));
+                document.getElementById('unlink-btn').addEventListener('click', () => handleOperation('unlink'));
+                document.getElementById('stat-btn').addEventListener('click', () => handleOperation('stat'));
+                document.getElementById('chmod-btn').addEventListener('click', () => handleOperation('chmod'));
+
+                // Other operations
+                document.getElementById('rename-btn').addEventListener('click', () => handleOperation('rename'));
+                document.getElementById('sync-btn').addEventListener('click', () => handleOperation('sync'));
+                document.getElementById('clear-btn').addEventListener('click', clearOutput);
+
+                log('Event listeners attached successfully');
+            } catch (error) {
+                logError(`Initialization failed: ${error.message}`);
+                console.error('Full initialization error:', error);
+            }
+        });
     </script>
 </body>
 </html> 
