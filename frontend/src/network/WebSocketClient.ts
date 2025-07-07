@@ -6,7 +6,7 @@ export interface WebSocketOptions {
 }
 
 export type MessageHandler = (message: WebSocketMessage) => void;
-type ErrorHandler = (error: Error) => void;
+export type ErrorHandler = (error: Error) => void;
 
 export class WebSocketClient {
   private ws: WebSocket | null = null;

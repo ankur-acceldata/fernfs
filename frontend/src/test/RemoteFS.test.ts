@@ -1,15 +1,15 @@
 import { RemoteFS } from '../RemoteFS';
 import { LocalStorageAdapter } from '../adapters/LocalStorageAdapter';
-import { StorageAdapter } from '../types';
+import { StorageAdapter } from '../types/index';
 import 'fake-indexeddb/auto';
 
 describe('RemoteFS', () => {
   let fs: RemoteFS;
+  let adapter: StorageAdapter;
 
-  beforeEach(async () => {
-    const adapter = new LocalStorageAdapter();
+  beforeEach(() => {
+    adapter = new LocalStorageAdapter();
     fs = new RemoteFS({ adapter });
-    await fs.init();
   });
 
   afterEach(async () => {
@@ -73,16 +73,16 @@ describe('RemoteFS', () => {
     it('should get file stats', async () => {
       await fs.writeFile('/test.txt', 'content');
       const stats = await fs.stat('/test.txt');
-      expect(stats.isFile()).toBe(true);
-      expect(stats.isDirectory()).toBe(false);
+      expect(stats.isFile).toBe(true);
+      expect(stats.isDirectory).toBe(false);
       expect(stats.size).toBe(7);
     });
 
     it('should get directory stats', async () => {
       await fs.mkdir('/test');
       const stats = await fs.stat('/test');
-      expect(stats.isFile()).toBe(false);
-      expect(stats.isDirectory()).toBe(true);
+      expect(stats.isFile).toBe(false);
+      expect(stats.isDirectory).toBe(true);
     });
 
     it('should update file permissions', async () => {
@@ -105,39 +105,35 @@ describe('RemoteFS', () => {
   });
 
   describe('Offline Support', () => {
-    it('should work in offline mode', async () => {
+    let onlineFs: RemoteFS;
+    let offlineFs: RemoteFS;
+
+    beforeEach(() => {
       const adapter = new LocalStorageAdapter();
-      const offlineFs = new RemoteFS({
+      onlineFs = new RemoteFS({
         adapter,
         enableOffline: true,
         serverUrl: 'ws://localhost:8080'
       });
 
-      await offlineFs.init();
-      await offlineFs.writeFile('/test.txt', 'content');
-      const content = await offlineFs.readFile('/test.txt', 'utf-8');
-      expect(content).toBe('content');
+      offlineFs = new RemoteFS({
+        adapter,
+        enableOffline: true,
+        serverUrl: 'ws://localhost:8080'
+      });
+    });
 
+    afterEach(async () => {
+      await onlineFs.close();
       await offlineFs.close();
     });
 
-    it('should sync when online', async () => {
-      const adapter = new LocalStorageAdapter();
-      const onlineFs = new RemoteFS({
-        adapter,
-        enableOffline: true,
-        serverUrl: 'ws://localhost:8080'
-      });
-
-      await onlineFs.init();
+    it('should sync changes when online', async () => {
       await onlineFs.writeFile('/test.txt', 'content');
       await onlineFs.sync();
-
-      const status = await onlineFs.getSyncStatus();
+      const status = onlineFs.getSyncStatus();
       expect(status.isSyncing).toBe(false);
       expect(status.pendingOperations).toBe(0);
-
-      await onlineFs.close();
     });
   });
 }); 

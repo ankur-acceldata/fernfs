@@ -41,6 +41,8 @@ export interface StorageAdapter {
 }
 
 export interface SyncOptions {
+  autoSync?: boolean;
+  syncInterval?: number;
   retryAttempts?: number;
   retryDelay?: number;
 }
@@ -54,7 +56,9 @@ export interface RemoteFSOptions {
 
 export interface SyncStatus {
   isSyncing: boolean;
+  lastSync: Date | null;
   pendingOperations: number;
+  errors?: Error[];
 }
 
 export interface OperationQueueItem {

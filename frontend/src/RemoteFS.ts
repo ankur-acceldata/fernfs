@@ -8,7 +8,7 @@ import {
   FileOptions,
   RemoteFSOptions,
   SyncStatus
-} from './types';
+} from './types/index';
 
 export class RemoteFS {
   private adapter: StorageAdapter;
@@ -31,18 +31,12 @@ export class RemoteFS {
     }
   }
 
-  async init(): Promise<void> {
-    if (this.syncManager) {
-      await this.syncManager.init();
-    }
-  }
-
   async close(): Promise<void> {
     if (this.webSocketClient) {
       await this.webSocketClient.close();
     }
-    if (this.operationQueue) {
-      await this.operationQueue.close();
+    if (this.syncManager) {
+      await this.syncManager.close();
     }
   }
 
@@ -74,27 +68,29 @@ export class RemoteFS {
     await this.adapter.unlink(path);
   }
 
-  async rename(oldPath: string, newPath: string): Promise<void> {
-    await this.adapter.rename(oldPath, newPath);
-  }
-
   async chmod(path: string, mode: number): Promise<void> {
     await this.adapter.chmod(path, mode);
   }
 
-  async sync(): Promise<void> {
-    if (this.syncManager) {
-      await this.syncManager.sync();
-    }
+  async rename(oldPath: string, newPath: string): Promise<void> {
+    await this.adapter.rename(oldPath, newPath);
   }
 
-  async getSyncStatus(): Promise<SyncStatus> {
+  async sync(): Promise<void> {
+    if (!this.syncManager) {
+      return;
+    }
+    await this.syncManager.sync();
+  }
+
+  getSyncStatus(): SyncStatus {
     if (!this.syncManager) {
       return {
         isSyncing: false,
+        lastSync: null,
         pendingOperations: 0
       };
     }
-    return this.syncManager.getStatus();
+    return this.syncManager.getSyncStatus();
   }
 } 

@@ -1,39 +1,65 @@
 import { WebSocketClient } from '../network/WebSocketClient';
 import { OperationQueue } from './OperationQueue';
-import { StorageAdapter, SyncOptions, SyncStatus } from '../types';
+import { StorageAdapter, WebSocketMessage, SyncStatus, SyncOptions } from '../types/index';
 
 export class SyncManager {
-  private isSyncing = false;
-  private lastSyncTime: Date | undefined;
-  private errors: Error[] = [];
-  private retryAttempts: number;
-  private retryDelay: number;
+  private isSyncing: boolean = false;
+  private lastSyncTime: Date | null = null;
+  private syncInterval: number | null = null;
 
   constructor(
     private adapter: StorageAdapter,
-    private queue: OperationQueue,
+    private operationQueue: OperationQueue,
     private wsClient: WebSocketClient,
-    options: SyncOptions = {}
+    private options: SyncOptions = {}
   ) {
-    this.retryAttempts = options.retryAttempts ?? 3;
-    this.retryDelay = options.retryDelay ?? 1000;
+    this.setupWebSocket();
+    if (options.autoSync) {
+      this.startAutoSync(options.syncInterval || 30000);
+    }
   }
 
-  async init(): Promise<void> {
-    await this.wsClient.connect();
-    this.setupEventListeners();
+  private setupWebSocket(): void {
+    this.wsClient.onMessage((message: WebSocketMessage) => {
+      if (message.type === 'response') {
+        // Handle successful response
+        this.handleSyncResponse(message);
+      } else if (message.type === 'error') {
+        // Handle error response
+        this.handleSyncError(message);
+      }
+    });
   }
 
-  private setupEventListeners(): void {
-    this.wsClient.onMessage((message) => {
-      // Handle incoming sync messages
-      console.log('Received sync message:', message);
-    });
+  private async syncOperation(operation: OperationQueueItem): Promise<void> {
+    const message: WebSocketMessage = {
+      id: operation.id,
+      type: 'request',
+      operation: operation.operation,
+      path: operation.path,
+      data: operation.data,
+      options: operation.options,
+      timestamp: Date.now()
+    };
 
-    this.wsClient.onError((error) => {
-      console.error('WebSocket error:', error);
-      this.errors.push(error);
-    });
+    await this.wsClient.send(message);
+  }
+
+  private handleSyncResponse(message: WebSocketMessage): void {
+    // Handle successful sync response
+    this.operationQueue.remove(message.id);
+    this.lastSyncTime = new Date();
+  }
+
+  private handleSyncError(message: WebSocketMessage): void {
+    // Handle sync error
+    console.error('Sync error:', message.error);
+  }
+
+  private startAutoSync(interval: number): void {
+    this.syncInterval = window.setInterval(() => {
+      this.sync().catch(console.error);
+    }, interval);
   }
 
   async sync(): Promise<void> {
@@ -43,20 +69,9 @@ export class SyncManager {
 
     this.isSyncing = true;
     try {
-      const operations = await this.queue.getAll();
+      const operations = await this.operationQueue.getAll();
       for (const operation of operations) {
-        try {
-          await this.wsClient.send(operation);
-          await this.queue.remove(operation.id);
-        } catch (error) {
-          console.error('Failed to sync operation:', error);
-          this.errors.push(error as Error);
-          if (operation.retryCount && operation.retryCount >= this.retryAttempts) {
-            await this.queue.remove(operation.id);
-          } else {
-            await this.queue.updateRetryCount(operation.id);
-          }
-        }
+        await this.syncOperation(operation);
       }
       this.lastSyncTime = new Date();
     } finally {
@@ -64,12 +79,26 @@ export class SyncManager {
     }
   }
 
-  getStatus(): SyncStatus {
+  getSyncStatus(): SyncStatus {
     return {
       isSyncing: this.isSyncing,
-      lastSyncTime: this.lastSyncTime,
-      pendingOperations: this.queue.size(),
-      errors: this.errors.length > 0 ? [...this.errors] : undefined,
+      lastSync: this.lastSyncTime,
+      pendingOperations: this.operationQueue.size()
     };
   }
+
+  async close(): Promise<void> {
+    if (this.syncInterval !== null) {
+      window.clearInterval(this.syncInterval);
+      this.syncInterval = null;
+    }
+  }
+}
+
+interface OperationQueueItem {
+  id: string;
+  operation: string;
+  path: string;
+  data?: any;
+  options?: Record<string, unknown>;
 } 

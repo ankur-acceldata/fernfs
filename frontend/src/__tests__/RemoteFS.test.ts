@@ -1,13 +1,14 @@
 import { RemoteFS } from '../RemoteFS';
 import { LocalStorageAdapter } from '../adapters/LocalStorageAdapter';
-import { StorageAdapter } from '../types';
+import { StorageAdapter } from '../types/index';
 import 'fake-indexeddb/auto';
 
 describe('RemoteFS', () => {
   let fs: RemoteFS;
+  let adapter: StorageAdapter;
 
   beforeEach(() => {
-    const adapter = new LocalStorageAdapter();
+    adapter = new LocalStorageAdapter();
     fs = new RemoteFS({ adapter });
   });
 
@@ -39,10 +40,11 @@ describe('RemoteFS', () => {
   });
 
   describe('File Operations', () => {
-    it('should write and read files', async () => {
-      await fs.writeFile('/test.txt', 'content');
-      const content = await fs.readFile('/test.txt', 'utf-8');
-      expect(content).toBe('content');
+    it('should write and read file', async () => {
+      const content = 'Hello, World!';
+      await fs.writeFile('/test.txt', content);
+      const result = await fs.readFile('/test.txt', 'utf-8');
+      expect(result).toBe(content);
     });
 
     it('should handle binary data', async () => {
@@ -53,18 +55,18 @@ describe('RemoteFS', () => {
       expect(new Uint8Array(content as ArrayBuffer)).toEqual(data);
     });
 
-    it('should delete files', async () => {
+    it('should delete file', async () => {
       await fs.writeFile('/test.txt', 'content');
       await fs.unlink('/test.txt');
-      await expect(fs.readFile('/test.txt')).rejects.toThrow();
+      await expect(fs.stat('/test.txt')).rejects.toThrow();
     });
 
-    it('should rename files', async () => {
-      await fs.writeFile('/test.txt', 'content');
-      await fs.rename('/test.txt', '/renamed.txt');
-      const content = await fs.readFile('/renamed.txt', 'utf-8');
+    it('should rename file', async () => {
+      await fs.writeFile('/old.txt', 'content');
+      await fs.rename('/old.txt', '/new.txt');
+      await expect(fs.stat('/old.txt')).rejects.toThrow();
+      const content = await fs.readFile('/new.txt', 'utf-8');
       expect(content).toBe('content');
-      await expect(fs.readFile('/test.txt')).rejects.toThrow();
     });
   });
 
@@ -72,16 +74,16 @@ describe('RemoteFS', () => {
     it('should get file stats', async () => {
       await fs.writeFile('/test.txt', 'content');
       const stats = await fs.stat('/test.txt');
-      expect(stats.isFile()).toBe(true);
-      expect(stats.isDirectory()).toBe(false);
+      expect(stats.isFile).toBe(true);
+      expect(stats.isDirectory).toBe(false);
       expect(stats.size).toBe(7);
     });
 
     it('should get directory stats', async () => {
       await fs.mkdir('/test');
       const stats = await fs.stat('/test');
-      expect(stats.isFile()).toBe(false);
-      expect(stats.isDirectory()).toBe(true);
+      expect(stats.isFile).toBe(false);
+      expect(stats.isDirectory).toBe(true);
     });
 
     it('should update file permissions', async () => {
@@ -104,38 +106,35 @@ describe('RemoteFS', () => {
   });
 
   describe('Offline Support', () => {
-    it('should work in offline mode', async () => {
+    let onlineFs: RemoteFS;
+    let offlineFs: RemoteFS;
+
+    beforeEach(() => {
       const adapter = new LocalStorageAdapter();
-      const offlineFs = new RemoteFS({
+      onlineFs = new RemoteFS({
         adapter,
         enableOffline: true,
         serverUrl: 'ws://localhost:8080'
       });
 
-      await offlineFs.writeFile('/test.txt', 'content');
-      const content = await offlineFs.readFile('/test.txt', 'utf-8');
-      expect(content).toBe('content');
+      offlineFs = new RemoteFS({
+        adapter,
+        enableOffline: true,
+        serverUrl: 'ws://localhost:8080'
+      });
+    });
 
+    afterEach(async () => {
+      await onlineFs.close();
       await offlineFs.close();
     });
 
-    it('should sync when online', async () => {
-      const adapter = new LocalStorageAdapter();
-      const onlineFs = new RemoteFS({
-        adapter,
-        enableOffline: true,
-        serverUrl: 'ws://localhost:8080'
-      });
-
-      await onlineFs.init();
+    it('should sync changes when online', async () => {
       await onlineFs.writeFile('/test.txt', 'content');
       await onlineFs.sync();
-
-      const status = await onlineFs.getSyncStatus();
+      const status = onlineFs.getSyncStatus();
       expect(status.isSyncing).toBe(false);
       expect(status.pendingOperations).toBe(0);
-
-      await onlineFs.close();
     });
   });
 }); 

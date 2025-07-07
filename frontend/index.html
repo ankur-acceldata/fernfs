@@ -5,11 +5,265 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="FernFS - A modern file system interface">
     <meta name="theme-color" content="#000000">
-    <title>FernFS</title>
+    <title>FernFS Test Page</title>
     <link rel="icon" type="image/svg+xml" href="/vite.svg">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        h1, h2 {
+            color: #2c3e50;
+        }
+
+        .operation-group {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .button-group {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        button {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            background-color: #3498db;
+            color: white;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        button:hover {
+            background-color: #2980b9;
+        }
+
+        #output {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .input-group {
+            margin: 10px 0;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        input {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            flex: 1;
+        }
+
+        label {
+            min-width: 100px;
+            color: #2c3e50;
+        }
+    </style>
 </head>
 <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.js"></script>
+    <h1>FernFS Test Page</h1>
+    
+    <div class="operation-group">
+        <h2>Common Inputs</h2>
+        <div class="input-group">
+            <label for="path">Path:</label>
+            <input type="text" id="path" value="/test" />
+        </div>
+        <div class="input-group">
+            <label for="content">Content:</label>
+            <input type="text" id="content" value="Hello, World!" />
+        </div>
+        <div class="input-group">
+            <label for="mode">Mode:</label>
+            <input type="text" id="mode" value="0o755" />
+        </div>
+    </div>
+
+    <div class="operation-group">
+        <h2>Directory Operations</h2>
+        <div class="button-group">
+            <button onclick="mkdir()">mkdir</button>
+            <button onclick="rmdir()">rmdir</button>
+            <button onclick="readdir()">readdir</button>
+        </div>
+    </div>
+
+    <div class="operation-group">
+        <h2>File Operations</h2>
+        <div class="button-group">
+            <button onclick="readFile()">readFile</button>
+            <button onclick="writeFile()">writeFile</button>
+            <button onclick="unlink()">unlink</button>
+            <button onclick="stat()">stat</button>
+            <button onclick="chmod()">chmod</button>
+        </div>
+    </div>
+
+    <div class="operation-group">
+        <h2>Other Operations</h2>
+        <div class="button-group">
+            <button onclick="rename()">rename</button>
+            <button onclick="sync()">sync</button>
+            <button onclick="clearOutput()">Clear Output</button>
+        </div>
+    </div>
+
+    <div id="output"></div>
+
+    <script type="module">
+        import { RemoteFS, LocalStorageAdapter } from './dist/index.js';
+
+        // Initialize RemoteFS
+        const adapter = new LocalStorageAdapter();
+        window.fs = new RemoteFS({
+            adapter,
+            enableOffline: true,
+            serverUrl: 'ws://localhost:8080'
+        });
+
+        // Helper to get input values
+        function getInputs() {
+            return {
+                path: document.getElementById('path').value,
+                content: document.getElementById('content').value,
+                mode: parseInt(document.getElementById('mode').value.replace('0o', ''), 8)
+            };
+        }
+
+        // Helper to log output
+        function log(message, error = false) {
+            const output = document.getElementById('output');
+            const entry = document.createElement('div');
+            entry.style.color = error ? '#e74c3c' : '#2ecc71';
+            entry.textContent = `${new Date().toISOString()} ${message}`;
+            output.insertBefore(entry, output.firstChild);
+        }
+
+        // Expose operations to window
+        window.mkdir = async () => {
+            try {
+                const { path, mode } = getInputs();
+                await fs.mkdir(path, mode);
+                log(`Created directory: ${path}`);
+            } catch (error) {
+                log(error.message, true);
+            }
+        };
+
+        window.rmdir = async () => {
+            try {
+                const { path } = getInputs();
+                await fs.rmdir(path);
+                log(`Removed directory: ${path}`);
+            } catch (error) {
+                log(error.message, true);
+            }
+        };
+
+        window.readdir = async () => {
+            try {
+                const { path } = getInputs();
+                const entries = await fs.readdir(path);
+                log(`Directory contents of ${path}:\n${JSON.stringify(entries, null, 2)}`);
+            } catch (error) {
+                log(error.message, true);
+            }
+        };
+
+        window.readFile = async () => {
+            try {
+                const { path } = getInputs();
+                const content = await fs.readFile(path, 'utf-8');
+                log(`File contents of ${path}:\n${content}`);
+            } catch (error) {
+                log(error.message, true);
+            }
+        };
+
+        window.writeFile = async () => {
+            try {
+                const { path, content } = getInputs();
+                await fs.writeFile(path, content);
+                log(`Wrote to file: ${path}`);
+            } catch (error) {
+                log(error.message, true);
+            }
+        };
+
+        window.unlink = async () => {
+            try {
+                const { path } = getInputs();
+                await fs.unlink(path);
+                log(`Deleted file: ${path}`);
+            } catch (error) {
+                log(error.message, true);
+            }
+        };
+
+        window.stat = async () => {
+            try {
+                const { path } = getInputs();
+                const stats = await fs.stat(path);
+                log(`Stats for ${path}:\n${JSON.stringify(stats, null, 2)}`);
+            } catch (error) {
+                log(error.message, true);
+            }
+        };
+
+        window.chmod = async () => {
+            try {
+                const { path, mode } = getInputs();
+                await fs.chmod(path, mode);
+                log(`Changed mode of ${path} to ${mode.toString(8)}`);
+            } catch (error) {
+                log(error.message, true);
+            }
+        };
+
+        window.rename = async () => {
+            try {
+                const { path, content } = getInputs();
+                await fs.rename(path, content); // Using content input as new path
+                log(`Renamed ${path} to ${content}`);
+            } catch (error) {
+                log(error.message, true);
+            }
+        };
+
+        window.sync = async () => {
+            try {
+                await fs.sync();
+                const status = await fs.getSyncStatus();
+                log(`Sync completed. Status:\n${JSON.stringify(status, null, 2)}`);
+            } catch (error) {
+                log(error.message, true);
+            }
+        };
+
+        window.clearOutput = () => {
+            document.getElementById('output').innerHTML = '';
+        };
+    </script>
 </body>
 </html> 
